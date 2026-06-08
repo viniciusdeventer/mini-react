@@ -30,6 +30,8 @@ let nextUnitOfWork = null
 let wipRoot       = null
 let currentRoot   = null
 let deletions     = null
+let wipFiber      = null
+let hookIndex     = null
 
 function workLoop(deadline) {
   let shouldYield = false
@@ -89,7 +91,14 @@ function updateHostComponent(fiber) {
 }
 
 function updateFunctionComponent(fiber) {
-  // placeholder until Mission 4
+  wipFiber = fiber
+  hookIndex = 0
+  wipFiber.hooks = []
+ 
+  // Calling fiber.type(fiber.props) executes the component function.
+  // Any useState inside it will read wipFiber and hookIndex above.
+  const children = [fiber.type(fiber.props)]
+  reconcileChildren(fiber, children)
 }
 
 // ── 3.1 Commit Phase (provided — with your comments) ─────────
@@ -281,26 +290,68 @@ function reconcileChildren(wipFiber, elements) {
   }
 }
 
-const Didact = { createElement, render }
-
-// Testes da Missão 3
-
-const container = document.getElementById("root")
-
-function updateApp(title, description) {
-  const element = Didact.createElement(
-    "div",
-    { style: "background: lightblue; padding: 20px; border-radius: 8px;" },
-    Didact.createElement("h1", null, title),
-    Didact.createElement("p", null, description)
-  )
-  Didact.render(element, container)
+function useState(initial) {
+  // Step 1: Retrieve the old hook at this same position from the previous render.
+  // This is how state survives between renders — it lives in the fiber, not the function.
+  const oldHook =
+    wipFiber.alternate &&
+    wipFiber.alternate.hooks &&
+    wipFiber.alternate.hooks[hookIndex]
+ 
+  // Step 2: Create the new hook.
+  // State starts from the old hook's value, or falls back to `initial` on first render.
+  // The queue starts empty — it will be filled by setState calls made since last render.
+  const hook = {
+    state: oldHook ? oldHook.state : initial,
+    queue: [],
+  }
+ 
+  // Step 3: Process the queue (batching).
+  // Apply every queued action to compute the final state for this render.
+  // An action can be a plain value OR a function (e.g. c => c + 1).
+  const actions = oldHook ? oldHook.queue : []
+  actions.forEach(action => {
+    hook.state = typeof action === "function"
+      ? action(hook.state)   // functional update: receives previous state
+      : action               // direct value update
+  })
+ 
+  // Step 4: The setState dispatcher.
+  // Pushing to hook.queue schedules the action for the NEXT render.
+  // Resetting wipRoot wakes up the work loop to start a new render cycle.
+  const setState = action => {
+    hook.queue.push(action)
+    wipRoot = {
+      dom:       currentRoot.dom,
+      props:     currentRoot.props,
+      alternate: currentRoot,   // diff against the tree that's currently in the DOM
+    }
+    deletions        = []
+    nextUnitOfWork   = wipRoot  // wake up the work loop
+  }
+ 
+  // Step 5: Advance the cursor and register the hook in this fiber's array.
+  wipFiber.hooks.push(hook)
+  hookIndex++
+ 
+  return [hook.state, setState]
 }
 
-// 1. Initial render — all fibers get PLACEMENT
-updateApp("Mission 3: Fiber Tree works! 🌳", "Wait 2 seconds for the update...")
+const Didact = { createElement, render }
 
-// 2. Update — the wrapper div is recycled (UPDATE), text nodes are replaced
-setTimeout(() => {
-  updateApp("Mission 3: Reconciliation works! 🔄", "The DOM was updated without recreating the wrapper div.")
-}, 2000)
+// Testes da Missão 4
+
+const container = document.getElementById("root")
+ 
+function Greeting(props) {
+  return Didact.createElement(
+    "h1",
+    { style: "color: green;" },
+    "Mission 4: Hello, ",
+    props.name,
+    "!"
+  )
+}
+ 
+const App = Didact.createElement(Greeting, { name: "Function Components" })
+Didact.render(App, container)
