@@ -56,6 +56,8 @@ function render(element, container) {
   container.appendChild(dom)
 }
 
+// Testes da Missão 1: Basic Rendering
+
 // const Didact = { createElement, render }
 
 // // We are not using JSX yet, so we write the nested calls manually
@@ -68,3 +70,104 @@ function render(element, container) {
 
 // const container = document.getElementById("root")
 // Didact.render(element, container)
+
+let nextUnitOfWork = null
+
+function workLoop(deadline) {
+  let shouldYield = false
+  while (nextUnitOfWork && !shouldYield) {
+    nextUnitOfWork = performUnitOfWork(nextUnitOfWork)
+    shouldYield = deadline.timeRemaining() < 1
+  }
+
+  if (!nextUnitOfWork && wipRoot) {
+    commitRoot()
+  }
+
+  requestIdleCallback(workLoop)
+}
+
+requestIdleCallback(workLoop)
+
+function createDom(fiber) {
+  const dom =
+    fiber.type === "TEXT_ELEMENT"
+      ? document.createTextNode("")
+      : document.createElement(fiber.type)
+
+  updateDom(dom, {}, fiber.props)
+  return dom
+}
+
+function performUnitOfWork(fiber) {
+  const isFunctionComponent = fiber.type instanceof Function
+  if (isFunctionComponent) {
+    updateFunctionComponent(fiber)
+  } else {
+    updateHostComponent(fiber)
+  }
+ 
+  // 1. Child first — depth-first descent
+  if (fiber.child) {
+    return fiber.child
+  }
+ 
+  // 2. No child: look for a sibling, or climb until we find an uncle
+  let next = fiber
+  while (next) {
+    if (next.sibling) {
+      return next.sibling   // found a sibling (or uncle at some level)
+    }
+    next = next.parent      // climb one level and try again
+  }
+ 
+  // 3. next became undefined — we walked all the way back past the root
+  return undefined
+}
+ 
+// Handles plain HTML elements (div, h1, p, …)
+function updateHostComponent(fiber) {
+  if (!fiber.dom) {
+    fiber.dom = createDom(fiber)
+  }
+  reconcileChildren(fiber, fiber.props.children)
+}
+
+// Testes da Missão 2: Fiber Traversal Logic
+
+/* Let's simulate this tree:
+      A
+     / \
+    B   D
+   /
+  C
+*/
+
+// 1. Create fake fibers
+const fiberC = { type: "C", props: {} };
+const fiberB = { type: "B", props: {}, child: fiberC };
+const fiberD = { type: "D", props: {} };
+const fiberA = { type: "A", props: {}, child: fiberB };
+
+// 2. Link parents and siblings
+fiberC.parent = fiberB;
+fiberB.parent = fiberA;
+fiberD.parent = fiberA;
+fiberB.sibling = fiberD;
+
+// 3. Temporarily mock the update function so it doesn't try to touch the DOM
+const originalUpdateHost = updateHostComponent;
+updateHostComponent = (fiber) => { 
+  console.log("Visiting node:", fiber.type); 
+};
+
+// 4. Run your Work Loop logic manually
+console.log("--- Starting Fiber Traversal Test ---");
+let nextUnit = fiberA;
+while (nextUnit) {
+  nextUnit = performUnitOfWork(nextUnit);
+}
+console.log("--- Traversal Finished ---");
+
+// Restore the original function for the next missions
+updateHostComponent = originalUpdateHost;
